@@ -3,7 +3,9 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>NFC testpagina</title>
+  <meta name="theme-color" content="#10231c">
+  <title>Studeermodus</title>
+
   <style>
     * { box-sizing: border-box; }
 
@@ -12,51 +14,176 @@
       min-height: 100vh;
       display: grid;
       place-items: center;
-      padding: 24px;
+      padding: 20px;
       font-family: Arial, sans-serif;
-      color: #172033;
-      background: #f1f5f9;
+      color: #f1f5f9;
+      background: #10231c;
     }
 
     main {
       width: 100%;
-      max-width: 420px;
-      padding: 32px 24px;
+      max-width: 430px;
+      padding: 30px 24px;
       text-align: center;
-      background: white;
-      border-radius: 18px;
-      box-shadow: 0 12px 32px #1720331a;
+      background: #1b382c;
+      border: 1px solid #355b48;
+      border-radius: 20px;
+      box-shadow: 0 15px 45px #0004;
     }
 
-    .icon { font-size: 48px; }
+    h1 { margin: 0 0 8px; }
+    p { color: #c1d5ca; line-height: 1.5; }
 
-    h1 { margin: 12px 0 8px; }
-
-    p {
-      color: #64748b;
-      line-height: 1.5;
-    }
-
-    a {
-      display: block;
-      margin-top: 14px;
+    select, button {
+      width: 100%;
+      margin-top: 12px;
       padding: 14px;
+      border: 0;
       border-radius: 10px;
-      color: white;
-      background: #2563eb;
-      text-decoration: none;
+      font-size: 16px;
+    }
+
+    select { background: white; color: #10231c; }
+
+    button {
+      cursor: pointer;
       font-weight: bold;
     }
 
-    a:hover { background: #1d4ed8; }
+    #start { background: #7ee0a3; color: #10231c; }
+    #stop { background: #ff7777; color: #2b1010; }
+
+    #timer {
+      margin: 24px 0;
+      font-size: clamp(56px, 18vw, 76px);
+      font-variant-numeric: tabular-nums;
+      font-weight: bold;
+    }
+
+    #status { min-height: 24px; }
   </style>
 </head>
 <body>
   <main>
-    <div class="icon">📱</div>
-    <h1>Het werkt!</h1>
-    <p>Je hebt onze NFC-testpagina geopend.</p>
-    <a href="mailto:test@example.com">Stuur ons een e-mail</a>
+    <h1>📚 Studeermodus</h1>
+    <p>Kies hoe lang je wilt studeren. Tik op start om de timer te beginnen.</p>
+
+    <label for="duration">Studieduur</label>
+    <select id="duration">
+      <option value="25">25 minuten</option>
+      <option value="45">45 minuten</option>
+      <option value="60">60 minuten</option>
+      <option value="90">90 minuten</option>
+    </select>
+
+    <div id="timer" role="timer" aria-live="off">25:00</div>
+
+    <button id="start" type="button">Start studiemodus</button>
+    <button id="stop" type="button">Noodstop — stoppen en afsluiten</button>
+
+    <p id="status" aria-live="polite">Klaar om te studeren.</p>
   </main>
+
+  <script>
+    const durationSelect = document.querySelector("#duration");
+    const timerDisplay = document.querySelector("#timer");
+    const statusText = document.querySelector("#status");
+    const startButton = document.querySelector("#start");
+    const stopButton = document.querySelector("#stop");
+
+    let intervalId = null;
+    let wakeLock = null;
+    let endTime = null;
+    let remainingSeconds = Number(durationSelect.value) * 60;
+
+    function showTime() {
+      const minutes = Math.floor(remainingSeconds / 60);
+      const seconds = remainingSeconds % 60;
+      timerDisplay.textContent =
+        String(minutes).padStart(2, "0") + ":" +
+        String(seconds).padStart(2, "0");
+    }
+
+    function stopStudy(message) {
+      clearInterval(intervalId);
+      intervalId = null;
+      endTime = null;
+
+      if (wakeLock) {
+        wakeLock.release().catch(() => {});
+        wakeLock = null;
+      }
+
+      remainingSeconds = Number(durationSelect.value) * 60;
+      showTime();
+      durationSelect.disabled = false;
+      startButton.disabled = false;
+      statusText.textContent = message;
+    }
+
+    async function startStudy() {
+      if (intervalId) return;
+
+      remainingSeconds = Number(durationSelect.value) * 60;
+      endTime = Date.now() + remainingSeconds * 1000;
+
+      durationSelect.disabled = true;
+      startButton.disabled = true;
+      statusText.textContent = "Studiemodus actief. Succes!";
+
+      // Houd het scherm aan zolang de browser dit toestaat.
+      try {
+        if ("wakeLock" in navigator) {
+          wakeLock = await navigator.wakeLock.request("screen");
+        }
+      } catch (error) {
+        // De timer blijft werken als scherm-aanhouden niet beschikbaar is.
+      }
+
+      intervalId = setInterval(() => {
+        remainingSeconds = Math.max(
+          0,
+          Math.ceil((endTime - Date.now()) / 1000)
+        );
+        showTime();
+
+        if (remainingSeconds <= 0) {
+          stopStudy("Studietijd is klaar. Goed gedaan!");
+        }
+      }, 250);
+
+      showTime();
+    }
+
+    durationSelect.addEventListener("change", () => {
+      if (!intervalId) {
+        remainingSeconds = Number(durationSelect.value) * 60;
+        showTime();
+      }
+    });
+
+    startButton.addEventListener("click", startStudy);
+
+    stopButton.addEventListener("click", () => {
+      stopStudy("Noodstop: studiemodus is gestopt. Je kunt de pagina sluiten.");
+    });
+
+    // Werk de timer bij als iemand terugkeert naar de open browserpagina.
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "visible" && endTime) {
+        remainingSeconds = Math.max(
+          0,
+          Math.ceil((endTime - Date.now()) / 1000)
+        );
+        showTime();
+
+        if (remainingSeconds <= 0) {
+          stopStudy("Studietijd is klaar. Goed gedaan!");
+        }
+      }
+    });
+
+    showTime();
+  </script>
 </body>
 </html>
